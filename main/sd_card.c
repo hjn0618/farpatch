@@ -50,32 +50,25 @@ void calculate_file_storage_capacity(uint32_t total_space_kb) {
     ESP_LOGI(TAG, "最大存储文件数量: %lu, 最大文件数: %u", file_count, max_file_count);
 }
 
-
-
 static esp_err_t read_file_count() {
     nvs_handle_t nvs_handle;
     esp_err_t err = nvs_open("storage", NVS_READWRITE, &nvs_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "打开NVS句柄错误: %s", esp_err_to_name(err));
         return err;
-    } else {
-        ESP_LOGI(TAG, "NVS句柄已打开");
-        err = nvs_get_u8(nvs_handle, "file_counter", &file_counter);
-        switch (err) {
-            case ESP_OK:
-                ESP_LOGI(TAG, "文件计数器: %d", file_counter);
-                break;
-            case ESP_ERR_NVS_NOT_FOUND:
-                ESP_LOGI(TAG, "计数器未初始化");
-                file_counter = 0;
-                break;
-            default:
-                ESP_LOGE(TAG, "读取错误: %s", esp_err_to_name(err));
-                nvs_close(nvs_handle);
-                return err;
-        }
-        nvs_close(nvs_handle);
     }
+    
+    err = nvs_get_u8(nvs_handle, "file_counter", &file_counter);
+    if (err == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "计数器未初始化");
+        file_counter = 0;
+    } else if (err != ESP_OK) {
+        ESP_LOGE(TAG, "读取错误: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+    ESP_LOGI(TAG, "文件计数器: %d", file_counter);
+    nvs_close(nvs_handle);
     return ESP_OK;
 }
 
@@ -85,23 +78,23 @@ static esp_err_t write_file_count() {
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "打开NVS句柄错误: %s", esp_err_to_name(err));
         return err;
-    } else {
-        ESP_LOGI(TAG, "NVS句柄已打开");
-        err = nvs_set_u8(nvs_handle, "file_counter", file_counter);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "写入错误: %s", esp_err_to_name(err));
-            nvs_close(nvs_handle);
-            return err;
-        }
-        err = nvs_commit(nvs_handle);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "提交错误: %s", esp_err_to_name(err));
-            nvs_close(nvs_handle);
-            return err;
-        }
-        ESP_LOGI(TAG, "文件计数器已写入");
-        nvs_close(nvs_handle);
     }
+    
+    err = nvs_set_u8(nvs_handle, "file_counter", file_counter);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "写入错误: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+    
+    err = nvs_commit(nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "提交错误: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return err;
+    }
+    ESP_LOGI(TAG, "文件计数器已写入");
+    nvs_close(nvs_handle);
     return ESP_OK;
 }
 
@@ -131,10 +124,10 @@ void save_to_file(uint8_t *buf, size_t len) {
     uint8_t *data_copy = (uint8_t *)malloc(len);
     if (data_copy == NULL) {
         ESP_LOGE(TAG, "内存分配失败");
-        return; // 如果内存分配失败，记录错误日志并返回
+        return;
     }
 
-    memcpy(data_copy, buf, len); // 将数据复制到新分配的内存中
+    memcpy(data_copy, buf, len);
 
     file_write_msg_t msg;
     msg.data = data_copy;
@@ -142,8 +135,15 @@ void save_to_file(uint8_t *buf, size_t len) {
 
     if (xQueueSend(file_queue, &msg, portMAX_DELAY) != pdTRUE) {
         ESP_LOGE(TAG, "无法将数据放入队列");
-        free(data_copy); // 如果发送失败，释放分配的内存
+        free(data_copy);
     }
+}
+static void increment_file_counter() {
+    file_counter++;
+    if (file_counter >= max_file_count) {
+        file_counter = 0;
+    }
+    write_file_count();
 }
 
 uint8_t get_file_counter() {
@@ -166,13 +166,9 @@ static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t 
         }
 
         if (*cache_log_file_size > MAX_FILE_SIZE) {
-            file_counter++;
-            if (file_counter > 100) {
-                file_counter = 0;
-            }
-            *cache_log_file_size = 0;
-            write_file_count();
+            increment_file_counter();
             check_and_remove_file_count();
+            *cache_log_file_size = 0;
             snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.log", file_counter);
         }
 
