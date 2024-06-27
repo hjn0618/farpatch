@@ -316,7 +316,10 @@ static void bluefi_event_callback(esp_blufi_cb_event_t event, esp_blufi_cb_param
         so disconnect wifi before connection.
         */
         esp_wifi_disconnect();
+		memcpy(WILMA_CONNECTION_LIST[0].ssid, sta_config.sta.ssid, sizeof(sta_config.sta.ssid));
+		memcpy(WILMA_CONNECTION_LIST[0].password, sta_config.sta.password, sizeof(sta_config.sta.password));
 		wilma_add_ssid((char *)sta_config.sta.ssid, (char *)sta_config.sta.password);
+		
         // example_wifi_connect();
         break;
     case ESP_BLUFI_EVENT_REQ_DISCONNECT_FROM_AP:
@@ -596,16 +599,18 @@ int wilma_add_ssid(const char *ssid, const char *password)
 			.ssid = {0},
 			.password = {0},
 		};
-		ESP_LOGE(TAG, "No wifi store found. Creating new entry for SSID %s", ssid);
+		ESP_LOGE(TAG, "No wifi store found. in wilma_add_ssid. Creating new entry for SSID %s", ssid);
 		memcpy(new_entry.ssid, ssid, MIN(strlen(ssid), sizeof(new_entry.ssid)));
 		memcpy(new_entry.password, password, MIN(strlen(password), sizeof(new_entry.ssid)));
 		log_connection(new_entry.ssid, new_entry.password);
 		update_saved_stations(&new_entry, 1);
+		ESP_LOGI(TAG, "Added new entry for SSID %s", ssid);
 
 		// Start connecting to the first entry in the list
 		if (ESP_OK == connect_to_station_index(0)) {
+			ESP_LOGI(TAG, "Connected to first station in list");
 			xEventGroupSetBits(WILMA_EVENT_GROUP, WILMA_CONNECTING_BIT);
-			// ESP_ERROR_CHECK(esp_wifi_connect());
+			esp_wifi_connect();
 			example_wifi_reconnect();
 		}
 		return ESP_OK;
@@ -1058,8 +1063,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 					break;
 				}
 				xEventGroupSetBits(WILMA_EVENT_GROUP, WILMA_CONNECTING_BIT);
-				ESP_ERROR_CHECK(esp_wifi_connect());
-				// example_wifi_connect();
+				esp_wifi_connect();
+				example_wifi_connect();
 				break;
 			} else if (xEventGroupGetBits(WILMA_EVENT_GROUP) & WILMA_SCAN_BIT) {
 				// Don't retry to connect to the AP if we're in the middle of a scan
@@ -1354,11 +1359,11 @@ bool wilma_ap_ssid(char ssid[33])
 
 static esp_err_t connect_to_station_index(size_t index)
 {
-	if (!WILMA_CONNECTION_LIST_COUNT) {
-		ESP_LOGD(TAG, "No stations in connection list, starting AP mode");
-		// wifi_configure_softap(true);
-		return ESP_FAIL;
-	}
+	// if (!WILMA_CONNECTION_LIST_COUNT) {
+	// 	ESP_LOGE(TAG, "No stations in connection list, starting AP mode");
+	// 	// wifi_configure_softap(true);
+	// 	return ESP_FAIL;
+	// }
 
 	if (index >= WILMA_CONNECTION_LIST_COUNT) {
 		ESP_LOGE(TAG, "Index %d is out of range -- looping", index);
@@ -1378,7 +1383,7 @@ static esp_err_t connect_to_station_index(size_t index)
 	log_connection(wifi_sta_config.sta.ssid, wifi_sta_config.sta.password);
 
 	ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_sta_config));
-	// ESP_LOGI(TAG, "Connecting to station SSID %s", wifi_sta_config.sta.ssid);
+	ESP_LOGI(TAG, "Connecting to station SSID %s", wifi_sta_config.sta.ssid);
 	return ESP_OK;
 }
 
