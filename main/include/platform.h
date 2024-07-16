@@ -29,6 +29,7 @@
 #include "hal/gpio_ll.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "led_control.h"
 
 #define PLATFORM_HAS_DEBUG
 extern bool debug_bmp;
@@ -36,9 +37,35 @@ extern bool debug_bmp;
 void platform_buffer_flush(void);
 void platform_set_baud(uint32_t baud);
 
-#define SET_RUN_STATE(state)
-#define SET_IDLE_STATE(state)
-#define SET_ERROR_STATE(state) gpio_set_level(CONFIG_LED_GPIO, !state)
+// 修改宏定义来控制LED状态
+#define SET_RUN_STATE(state)   \
+    do {                       \
+        if (state) {           \
+            set_led_color(0, 255, 0); \
+        }                      \
+		else {                 \
+			set_led_color(0, 0, 0); \
+		}                      \
+    } while (0)
+
+#define SET_IDLE_STATE(state)  \
+	do {                       \
+		if (state) {           \
+			set_led_color(0, 0, 255); \
+		}                      \
+		else {                 \
+			set_led_color(0, 0, 0); \
+		}                      \
+	} while (0)
+#define SET_ERROR_STATE(state) \
+	do {                       \
+		if (state) {           \
+			set_led_color(255, 0, 0); \
+		}                      \
+		else {                 \
+			set_led_color(0, 0, 0); \
+		}                      \
+	} while (0)
 
 #ifndef NO_LIBOPENCM3
 #define NO_LIBOPENCM3

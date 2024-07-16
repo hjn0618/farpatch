@@ -17,6 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #include "farpatch_adc.h"
 #include "general.h"
 #include "gdb_if.h"
@@ -67,6 +68,8 @@
 #include "ota-tftp.h"
 
 #include "sd_card.h"
+#include "led_control.h"
+
 
 #define TAG "farpatch"
 
@@ -77,7 +80,7 @@ static uint32_t frequency;
 static const char *power_source_name = "unknown";
 #endif
 
-#define CONFIG_WIFI_CONTROL_GPIO 40
+#define CONFIG_WIFI_CONTROL_GPIO    40
 
 bool control_wifi = false;
 int wifi_control = 2;
@@ -129,6 +132,7 @@ void platform_init(void)
 #if CONFIG_VREF_ADC_GPIO >= 0
 	gpio_reset_pin(CONFIG_VREF_ADC_GPIO);
 #endif
+
 
 	// Reset Button
 #if defined(CONFIG_RESET_BUTTON_GPIO) && CONFIG_RESET_BUTTON_GPIO >= 0
@@ -424,27 +428,27 @@ bool cmd_setbaud(target_s *t, int argc, const char **argv)
 	return 1;
 }
 
-static void IRAM_ATTR gpio13_isr_handler(void* arg)
+static void IRAM_ATTR gpio13_isr_handler(void *arg)
 {
-    int level = gpio_get_level(CONFIG_WIFI_CONTROL_GPIO);
+	int level = gpio_get_level(CONFIG_WIFI_CONTROL_GPIO);
 	wifi_control = level;
-	//重启系统
+	// 重启系统
 	esp_restart();
 }
 
 void gpio_control_wifi()
 {
 	// 配置 GPIO 13 用于控制 Wi-Fi
-    const gpio_config_t gpio_conf = {
-        .pin_bit_mask = BIT64(CONFIG_WIFI_CONTROL_GPIO),
-        .mode = GPIO_MODE_INPUT,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = 0,
-        .intr_type = GPIO_INTR_ANYEDGE,
-    };
-    gpio_config(&gpio_conf);
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(CONFIG_WIFI_CONTROL_GPIO, gpio13_isr_handler, NULL);
+	const gpio_config_t gpio_conf = {
+		.pin_bit_mask = BIT64(CONFIG_WIFI_CONTROL_GPIO),
+		.mode = GPIO_MODE_INPUT,
+		.pull_up_en = GPIO_PULLUP_ENABLE,
+		.pull_down_en = 0,
+		.intr_type = GPIO_INTR_ANYEDGE,
+	};
+	gpio_config(&gpio_conf);
+	gpio_install_isr_service(0);
+	gpio_isr_handler_add(CONFIG_WIFI_CONTROL_GPIO, gpio13_isr_handler, NULL);
 }
 
 /// Enable or disable the clock output pin. This is not configured on
@@ -469,6 +473,8 @@ void app_main(void)
 {
 	ESP_LOGI(__func__, "Free heap %" PRId32, esp_get_free_heap_size());
 	esp_err_t ret;
+
+	init_led_control();
 
 	ESP_LOGI(__func__, "starting farpatch");
 #if CONFIG_LED_GPIO >= 0
@@ -509,10 +515,11 @@ void app_main(void)
 	ESP_ERROR_CHECK(nvs_open("config", NVS_READWRITE, &h_nvs_conf));
 
 	ret = init_sd_card();
-    if (ret != ESP_OK) {
-       ESP_LOGE(TAG, "SD card initialization failed");
-    }
+	if (ret != ESP_OK) {
+		ESP_LOGE(TAG, "SD card initialization failed");
+	}
 
+	SET_IDLE_STATE(true);
 	gpio_control_wifi();
 
 	int is_wifi_control = gpio_get_level(CONFIG_WIFI_CONTROL_GPIO);
@@ -524,7 +531,6 @@ void app_main(void)
 
 	platform_init();
 	uart_hw_init();
-
 
 	if (is_wifi_control) {
 		ESP_LOGI(TAG, "wifi control enabled");
@@ -544,7 +550,7 @@ void app_main(void)
 		uart_net_init();
 		// rtt_init();
 		xTaskCreate(&gdb_net_task, "gdb_net", 2000, NULL, 1, NULL);
-	// 
+
 		ESP_LOGI(TAG, "starting tftp server");
 		ota_tftp_init_server(69, 4);
 
