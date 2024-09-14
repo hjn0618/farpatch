@@ -1,0 +1,30 @@
+{
+    "files.associations": {
+        "blufi_init.h": "c",
+        "cstdint": "c",
+        "farpatch_adc.h": "c",
+        "sdkconfig.h": "c",
+        "locale": "c",
+        "cstdio": "c",
+        "system_error": "c",
+        "array": "c",
+        "span": "c",
+        "string": "c",
+        "string_view": "c",
+        "vector": "c",
+        "stat.h": "c",
+        "cstdlib": "c",
+        "http.h": "c",
+        "complex": "c",
+        "websocket.h": "c",
+        "stdint.h": "c",
+        "frogfs.h": "c",
+        "typeinfo": "c",
+        "chrono": "c",
+        "unistd.h": "c",
+        "ios": "c",
+        "ratio": "c",
+        "led_strip_encoder.h": "c"
+    },
+    "idf.adapterTargetName": "esp32s3"
+}

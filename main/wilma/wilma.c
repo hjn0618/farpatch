@@ -179,7 +179,7 @@ typedef struct {
 	uint8_t password[64];
 } WilmaConnectStaParam;
 
-#define EXAMPLE_WIFI_CONNECTION_MAXIMUM_RETRY 10
+#define EXAMPLE_WIFI_CONNECTION_MAXIMUM_RETRY 255
 #define EXAMPLE_INVALID_REASON                255
 #define EXAMPLE_INVALID_RSSI                  -128
 
