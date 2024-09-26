@@ -41,7 +41,7 @@ static esp_err_t connect_to_station_index(size_t index);
 #endif
 
 #define ESP_WIFI_SAE_MODE                 WPA3_SAE_PWE_HUNT_AND_PECK
-#define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA_WPA2_PSK
+#define ESP_WIFI_SCAN_AUTH_MODE_THRESHOLD WIFI_AUTH_WPA2_PSK
 #define MAX_SCAN_RESULTS                  64
 #define WILMA_TASK_PRIORITY               5
 
@@ -1017,7 +1017,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 			gl_sta_connected = true;
 			gl_sta_is_connecting = false;
 			wifi_event_sta_connected_t *event = (wifi_event_sta_connected_t *)event_data;
-			ESP_LOGD(TAG, "WIFI_EVENT_STA_CONNECTED");
+			ESP_LOGI(TAG, "WIFI_EVENT_STA_CONNECTED");
 			memcpy(gl_sta_bssid, event->bssid, 6);
 			memcpy(gl_sta_ssid, event->ssid, sizeof(gl_sta_ssid));
 			gl_sta_ssid_len = event->ssid_len;
@@ -1027,6 +1027,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 				// ESP_ERROR_CHECK(esp_wifi_connect());
 				example_wifi_reconnect();
 			}
+
+			// esp_wifi_set_bandwidth(WIFI_IF_STA, WIFI_BW160);
 
 			break;
 		}

@@ -225,11 +225,70 @@ esp_err_t list_files_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
-esp_err_t download_handler(httpd_req_t *req) {
+typedef struct {
+    char *data;
+    int len;
+} file_chunk_t;
+
+typedef struct {
+    httpd_req_t *req;
+    QueueHandle_t queue;
+} task_params_t;
+
+static bool is_download_file_loaded = false;
+static bool is_download_failed = false;
+
+void file_reader_task(void *pvParameters) {
+    task_params_t *params = (task_params_t *) pvParameters;
+    httpd_req_t *req = params->req;
+    QueueHandle_t queue = params->queue;
+
     char filepath[100];
+    snprintf(filepath, sizeof(filepath), "/sdcard%s", req->uri + 9);  // 跳过 "/download"
+    FILE *file = fopen(filepath, "r");
+
+    if (!file) {
+        ESP_LOGE(TAG, "文件未找到: %s", filepath);
+        vTaskDelete(NULL);
+    }
+
+    size_t read_bytes;
+    while (1 && !is_download_failed) {
+        file_chunk_t chunk;
+        chunk.data = malloc(BUFFER_SIZE);  // 直接分配内存给 chunk.data
+        if (!chunk.data) {
+            ESP_LOGE(TAG, "内存分配失败");
+            fclose(file);
+            vTaskDelete(NULL);
+        }
+
+        // 直接将数据读入 chunk.data 中
+        read_bytes = fread(chunk.data, 1, BUFFER_SIZE, file);
+        if (read_bytes > 0) {
+            chunk.len = read_bytes;
+            xQueueSend(queue, &chunk, portMAX_DELAY);
+        } else {
+            free(chunk.data);
+            break;  // 读取完成或发生错误
+        }
+    }
+
+    // 发送结束信号
+    file_chunk_t end_signal = { .data = NULL, .len = 0 };
+    xQueueSend(queue, &end_signal, portMAX_DELAY);
+
+	is_download_file_loaded = true;
+
+    fclose(file);
+    vTaskDelete(NULL);
+}
+
+esp_err_t download_handler(httpd_req_t *req) {
+	ESP_LOGI("download_handler", "download_handler");
+	char filepath[100];
     snprintf(filepath, sizeof(filepath), "/sdcard%s", req->uri + 9); // Skip "/download"
-    
-    // Extract filename from the URI
+
+	// Extract filename from the URI
     const char *filename = strrchr(req->uri, '/');
     if (filename) {
         filename++; // Skip the '/'
@@ -238,53 +297,40 @@ esp_err_t download_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Invalid file path: %s", req->uri);
         return ESP_FAIL;
     }
-    
-    FILE *file = fopen(filepath, "r");
-    if (!file) {
-        httpd_resp_send_404(req);
-        ESP_LOGE(TAG, "File not found: %s", filepath);
-        return ESP_FAIL;
-    }
 
-    // Set Content-Disposition header
-    char content_disposition[100];
+	char content_disposition[100];
     snprintf(content_disposition, sizeof(content_disposition), "attachment; filename=\"%s\"", filename);
     httpd_resp_set_hdr(req, "Content-Disposition", content_disposition);
-
     // Set Content-Type header (optional, for better browser support)
     httpd_resp_set_type(req, "application/octet-stream");
 
-    char *buffer = malloc(BUFFER_SIZE);
-    if (!buffer) {
-        fclose(file);
-        httpd_resp_send_500(req);
-        ESP_LOGE(TAG, "Failed to allocate memory for buffer");
-        return ESP_FAIL;
+    QueueHandle_t queue = xQueueCreate(10, sizeof(file_chunk_t));  // Adjust size as needed
+    task_params_t params = {
+        .req = req,
+        .queue = queue
+    };
+
+	is_download_file_loaded = false;
+	is_download_failed = false;
+	TaskHandle_t file_reader_task_handle = NULL;
+
+    // Start file_reader_task
+    xTaskCreatePinnedToCore(file_reader_task, "file_reader_task", 4096, &params, 5, &file_reader_task_handle, 1);
+
+    file_chunk_t chunk;
+    while (xQueueReceive(queue, &chunk, portMAX_DELAY) && chunk.len != 0 && !is_download_file_loaded) {
+		if (httpd_resp_send_chunk(req, chunk.data, chunk.len) != ESP_OK) {
+			ESP_LOGE(TAG, "Failed to send file chunk");
+			free(chunk.data);
+			is_download_failed = true;
+			break;
+		}
+        free(chunk.data);
     }
 
-    // Check file size
-    struct stat st;
-    if (stat(filepath, &st) != 0) {
-        ESP_LOGE(TAG, "Failed to get file size: %s", filepath);
-    } else {
-        ESP_LOGI(TAG, "File size: %ld bytes", st.st_size);
-    }
+    httpd_resp_send_chunk(req, NULL, 0);  // End of file
 
-    size_t read_bytes;
-    while ((read_bytes = fread(buffer, 1, BUFFER_SIZE, file)) > 0) {
-        // ESP_LOGI(TAG, "Sending %d bytes", read_bytes);
-        if (httpd_resp_send_chunk(req, buffer, read_bytes) != ESP_OK) {
-            fclose(file);
-            free(buffer);
-            ESP_LOGE(TAG, "Failed to send file chunk: %s", filepath);
-            return ESP_FAIL;
-        }
-    }
-
-    httpd_resp_send_chunk(req, NULL, 0);  // Signal end of file transfer
-    fclose(file);
-    free(buffer);
-
+    vQueueDelete(queue);  // Clean up the queue
     return ESP_OK;
 }
 
