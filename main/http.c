@@ -183,12 +183,47 @@ esp_err_t list_files_handler(httpd_req_t *req) {
 	u_int8_t file_counter = get_file_counter();
 
     // Send HTML header
-    const char *html_header = "<html><body><h1>File List</h1><ul>";
+    const char *html_header = "<html>"
+                              "<script>"
+                              "function deleteFile(filename) {"
+                              "  if (!confirm('Are you sure you want to delete ' + filename + '?')) return;"
+                              "  const button = document.querySelector(`button[onclick=\"deleteFile('${filename}')\"]`);"
+                              "  button.disabled = true;"
+                              "  fetch('/delete/' + filename, { method: 'DELETE' })"
+                              "    .then(response => {"
+                              "      if (response.ok) {"
+                              "        location.reload();"
+                              "      } else {"
+                              "        alert('Failed to delete file');"
+                              "        button.disabled = false;"
+                              "      }"
+                              "    });"
+                              "}"
+                              "function deleteAllFiles() {"
+                              "  if (!confirm('Are you sure you want to delete all files?')) return;"
+                              "  const button = document.querySelector(`button[onclick=\"deleteAllFiles()\"]`);"
+                              "  button.disabled = true;"
+                              "  fetch('/delete_all', { method: 'DELETE' })"
+                              "    .then(response => {"
+                              "      if (response.ok) {"
+                              "        location.reload();"
+                              "      } else {"
+                              "        alert('Failed to delete all files');"
+                              "        button.disabled = false;"
+                              "      }"
+                              "    });"
+                              "}"
+                              "</script>"
+							  "<body><h1>File List</h1>"
+                              "<button onclick=\"deleteAllFiles()\">Delete All Files</button><ul>";
 
     httpd_resp_send_chunk(req, html_header, strlen(html_header));
 
-	snprintf(buffer, 1024, "<li><h1>current file index: %d</h1></li>", file_counter);
-	httpd_resp_send_chunk(req, buffer, strlen(buffer));
+    snprintf(buffer, 1024, "<li><h1>current file index: %d</h1></li>", file_counter);
+    httpd_resp_send_chunk(req, buffer, strlen(buffer));
+
+    char file_counter_str[20];
+    snprintf(file_counter_str, sizeof(file_counter_str), "UART_%d.GZ", file_counter);
 
     while ((entry = readdir(dir)) != NULL) {
         if (entry->d_type == DT_REG) { // Only list regular files
@@ -200,9 +235,17 @@ esp_err_t list_files_handler(httpd_req_t *req) {
                 continue;
             }
             if (stat(fullpath, &file_stat) == 0) {
-                int len = snprintf(buffer, 1024,
+                int len;
+                if (strstr(entry->d_name, file_counter_str) != NULL) {
+                    len = snprintf(buffer, 1024,
                                    "<li><a href=\"/download/%s\">%s</a> (%ld bytes)</li>",
                                    entry->d_name, entry->d_name, file_stat.st_size);
+                } else {
+                    len = snprintf(buffer, 1024,
+                                   "<li><a href=\"/download/%s\">%s</a> (%ld bytes) "
+                                   "<button onclick=\"deleteFile('%s')\">Delete</button></li>",
+                                   entry->d_name, entry->d_name, file_stat.st_size, entry->d_name);
+                }
                 if (len >= 1024) {
                     ESP_LOGE(TAG, "Buffer overflow when listing file: %s", entry->d_name);
                     continue;
@@ -213,8 +256,9 @@ esp_err_t list_files_handler(httpd_req_t *req) {
     }
     closedir(dir);
 
-    // Send HTML footer
-    const char *html_footer = "</ul></body></html>";
+    // Send HTML footer with JavaScript for delete functionality
+    const char *html_footer = "</ul>"
+                              "</body></html>";
     httpd_resp_send_chunk(req, html_footer, strlen(html_footer));
 
     // Signal end of response
@@ -629,6 +673,45 @@ static esp_err_t cgi_frog_fs_hook(httpd_req_t *req)
 	return ESP_OK;
 }
 
+static esp_err_t delete_file_handler(httpd_req_t *req) {
+    char filepath[100];
+    snprintf(filepath, sizeof(filepath), "/sdcard/%s", req->uri + 8); // Skip "/delete"
+
+    if (remove(filepath) == 0) {
+        httpd_resp_sendstr(req, "File deleted successfully");
+        return ESP_OK;
+    } else {
+        httpd_resp_send_500(req);
+        ESP_LOGE(TAG, "Failed to delete file: %s", filepath);
+        return ESP_FAIL;
+    }
+}
+
+static esp_err_t delete_all_files_handler(httpd_req_t *req) {
+    const char *base_path = "/sdcard";
+    DIR *dir = opendir(base_path);
+    if (!dir) {
+        httpd_resp_send_404(req);
+        ESP_LOGE(TAG, "Directory not found: %s", base_path);
+        return ESP_FAIL;
+    }
+
+    struct dirent *entry;
+    char filepath[300];
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) { // Only delete regular files
+            snprintf(filepath, sizeof(filepath), "%s/%s", base_path, entry->d_name);
+            if (remove(filepath) != 0) {
+                ESP_LOGE(TAG, "Failed to delete file: %s", filepath);
+            }
+        }
+    }
+    closedir(dir);
+
+    httpd_resp_sendstr(req, "All files deleted successfully");
+    return ESP_OK;
+}
+
 static const httpd_uri_t basic_handlers[] = {
 	// New API style
 	{
@@ -856,6 +939,18 @@ static const httpd_uri_t basic_handlers[] = {
 		.handler = cgi_frog_fs_hook,
 		.method = HTTP_GET,
 	},
+    {
+        .uri       = "/delete/*",
+        .method    = HTTP_DELETE,
+        .handler   = delete_file_handler,
+        .user_ctx  = NULL
+    },
+    {
+        .uri       = "/delete_all",
+        .method    = HTTP_DELETE,
+        .handler   = delete_all_files_handler,
+        .user_ctx  = NULL
+    },
 };
 
 static const int basic_handlers_count = sizeof(basic_handlers) / sizeof(*basic_handlers);

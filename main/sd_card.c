@@ -10,6 +10,7 @@
 #include <sd_pwr_ctrl_by_on_chip_ldo.h>
 #include <nvs_flash.h>
 #include <nvs.h>
+#include "zlib.h"
 
 #define EXAMPLE_MAX_CHAR_SIZE 64
 #define MOUNT_POINT "/sdcard"
@@ -108,7 +109,7 @@ static void check_and_remove_file_count() {
         delete_file_counter = file_counter - max_save_file_count - 1;
     }
 
-    snprintf(path, sizeof(path), MOUNT_POINT"/uart_%d.log", delete_file_counter);
+    snprintf(path, sizeof(path), MOUNT_POINT"/uart_%d.gz", delete_file_counter);
     if (stat(path, &st) == 0) {
         ESP_LOGI(TAG, "删除文件: %s", path);
         remove(path);
@@ -154,7 +155,7 @@ static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t 
     char path[EXAMPLE_MAX_CHAR_SIZE];
 
     if (*buffer_pos > 0) {
-        snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.log", file_counter);
+        snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.gz", file_counter);
 
         if (*cache_log_file_size == 0) {
             struct stat st;
@@ -169,25 +170,26 @@ static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t 
             increment_file_counter();
             check_and_remove_file_count();
             *cache_log_file_size = 0;
-            snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.log", file_counter);
+            snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.gz", file_counter);
         }
 
-        FILE *f = fopen(path, "a");
-        if (f == NULL) {
-            ESP_LOGE(TAG, "无法打开文件: %s", path);
+        gzFile gz_file = gzopen(path, "a");
+        if (gz_file == NULL) {
+            ESP_LOGE(TAG, "无法打开压缩文件: %s", path);
             *buffer_pos = 0;
             return;
         }
 
-        size_t written = fwrite(write_buffer, 1, *buffer_pos, f);
+        int written = gzwrite(gz_file, write_buffer, *buffer_pos);
         if (written != *buffer_pos) {
-            ESP_LOGE(TAG, "写入数据到文件失败: %s", path);
+            ESP_LOGE(TAG, "写入数据到压缩文件失败: %s", path);
         } else {
             *cache_log_file_size += written;
         }
 
+        gzclose(gz_file);
+
         *buffer_pos = 0;
-        fclose(f);
     }
 }
 
@@ -220,6 +222,7 @@ static void file_write_task(void *pvParameters) {
 
 esp_err_t init_sd_card() {
     read_file_count();
+    increment_file_counter();
 
     esp_err_t ret;
     esp_vfs_fat_sdmmc_mount_config_t mount_config = {
