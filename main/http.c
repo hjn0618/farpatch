@@ -26,6 +26,7 @@
 #include "esp_partition.h"
 #include <dirent.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 const static char http_cache_control_hdr[] = "Cache-Control";
 const static char http_cache_control_no_cache[] = "no-store, no-cache, must-revalidate, max-age=0";
@@ -333,7 +334,7 @@ esp_err_t download_handler(httpd_req_t *req) {
     snprintf(filepath, sizeof(filepath), "/sdcard%s", req->uri + 9); // Skip "/download"
 
 	// Extract filename from the URI
-    const char *filename = strrchr(req->uri, '/');
+    char *filename = strrchr(req->uri, '/');
     if (filename) {
         filename++; // Skip the '/'
     } else {
@@ -341,6 +342,11 @@ esp_err_t download_handler(httpd_req_t *req) {
         ESP_LOGE(TAG, "Invalid file path: %s", req->uri);
         return ESP_FAIL;
     }
+
+	// Convert filename to lowercase
+	for (char *p = filename; *p; ++p) {
+		*p = tolower(*p);
+	}
 
 	char content_disposition[100];
     snprintf(content_disposition, sizeof(content_disposition), "attachment; filename=\"%s\"", filename);
