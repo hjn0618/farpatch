@@ -44,7 +44,7 @@ typedef struct {
 void calculate_file_storage_capacity(uint32_t total_space_kb) {
     // 计算可以存储的文件数量
     uint32_t max_file_size_kb = MAX_FILE_SIZE / 1024;
-    uint32_t file_count = (total_space_kb * 4 / 5) / max_file_size_kb;
+    uint32_t file_count = (total_space_kb * 3 / 5) / max_file_size_kb;
     max_save_file_count = file_count;
     max_file_count = file_count * 2;
 
@@ -114,6 +114,12 @@ static void check_and_remove_file_count() {
         ESP_LOGI(TAG, "删除文件: %s", path);
         remove(path);
     }
+
+    snprintf(path, sizeof(path), MOUNT_POINT"/uart_%d.log", delete_file_counter);
+    if (stat(path, &st) == 0) {
+        ESP_LOGI(TAG, "删除文件: %s", path);
+        remove(path);
+    }
 }
 
 void save_to_file(uint8_t *buf, size_t len) {
@@ -153,9 +159,11 @@ uint8_t get_file_counter() {
 
 static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t *cache_log_file_size) {
     char path[EXAMPLE_MAX_CHAR_SIZE];
+    char path_log[EXAMPLE_MAX_CHAR_SIZE];
 
     if (*buffer_pos > 0) {
         snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.gz", file_counter);
+        snprintf(path_log, sizeof(path_log), MOUNT_POINT "/uart_%d.log", file_counter);
 
         if (*cache_log_file_size == 0) {
             struct stat st;
@@ -171,6 +179,7 @@ static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t 
             check_and_remove_file_count();
             *cache_log_file_size = 0;
             snprintf(path, sizeof(path), MOUNT_POINT "/uart_%d.gz", file_counter);
+            snprintf(path_log, sizeof(path_log), MOUNT_POINT "/uart_%d.log", file_counter);
         }
 
         gzFile gz_file = gzopen(path, "a");
@@ -183,11 +192,26 @@ static void write_buffer_to_file(size_t *buffer_pos, char *write_buffer, size_t 
         int written = gzwrite(gz_file, write_buffer, *buffer_pos);
         if (written != *buffer_pos) {
             ESP_LOGE(TAG, "写入数据到压缩文件失败: %s", path);
-        } else {
-            *cache_log_file_size += written;
         }
 
         gzclose(gz_file);
+
+        FILE *f = fopen(path_log, "a");
+        if (f == NULL) {
+            ESP_LOGE(TAG, "无法打开文件: %s", path_log);
+            *buffer_pos = 0;
+            return;
+        }
+
+        written = fwrite(write_buffer, 1, *buffer_pos, f);
+        if (written != *buffer_pos) {
+            ESP_LOGE(TAG, "写入数据到文件失败: %s", path_log);
+        }
+
+        fclose(f);
+
+        *cache_log_file_size += written;
+ 
 
         *buffer_pos = 0;
     }
