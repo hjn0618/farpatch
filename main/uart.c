@@ -8,7 +8,7 @@
 #include "hal/uart_hal.h"
 #include "nvs_flash.h"
 #include "soc/uart_reg.h"
-#include "soc/uart_periph.h"
+#include "hal/uart_periph.h"
 
 #include "sdkconfig.h"
 
@@ -201,9 +201,9 @@ static void uart_config(void)
 		.rx_flow_ctrl_thresh = 120,
 		.source_clk = UART_SCLK_DEFAULT,
 	};
-    int intr_alloc_flags = 0;
+	int intr_alloc_flags = 0;
 #if CONFIG_UART_ISR_IN_IRAM
-    intr_alloc_flags = ESP_INTR_FLAG_IRAM;
+	intr_alloc_flags = ESP_INTR_FLAG_IRAM;
 #endif
 	ESP_ERROR_CHECK(uart_driver_install(TARGET_UART_IDX, 4096, 0, 8, &uart_event_queue, intr_alloc_flags));
 	ESP_ERROR_CHECK(uart_param_config(TARGET_UART_IDX, &uart_config));
