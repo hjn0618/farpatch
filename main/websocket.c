@@ -132,6 +132,35 @@ static void cgi_websocket_close(void *ctx)
 	*fd = 0;
 }
 
+static esp_err_t websocket_register_client(httpd_req_t *req, struct websocket_config *cfg)
+{
+	const int sockfd = httpd_req_to_sockfd(req);
+	int free_idx = -1;
+
+	for (int i = 0; i < cfg->handle_count; i++) {
+		if (cfg->handles[i].fd == sockfd) {
+			return ESP_OK;
+		}
+		if (cfg->handles[i].fd == 0) {
+			free_idx = i;
+		}
+	}
+
+	if (free_idx == -1) {
+		ESP_LOGE(__func__, "no free sockets to handle this connection");
+		return ESP_OK;
+	}
+
+	int opt = 1;
+	setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt));
+	setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void *)&opt, sizeof(opt));
+	cfg->handles[free_idx].fd = sockfd;
+	cfg->handles[free_idx].cookie = esp_random();
+	req->sess_ctx = &cfg->handles[free_idx];
+	req->free_ctx = cgi_websocket_close;
+	return ESP_OK;
+}
+
 // `ws_pkt` has already had its `len` field filled in by the caller, and it's
 // defined to be non-zero.
 static esp_err_t dispatch_websocket_data(httpd_req_t *req, httpd_ws_frame_t ws_pkt)
@@ -194,41 +223,14 @@ esp_err_t cgi_websocket(httpd_req_t *req)
 	httpd_ws_frame_t ws_pkt;
 	struct websocket_config *cfg = req->user_ctx;
 
+	// ESP-IDF 6 does not call the URI handler during the handshake, so register
+	// the client idempotently when the first data or keepalive frame arrives.
+	ret = websocket_register_client(req, cfg);
+	if (ret != ESP_OK) {
+		return ret;
+	}
+
 	if (req->method == HTTP_GET) {
-		int sockfd = httpd_req_to_sockfd(req);
-		int opt;
-
-		// Enable reusing this socket
-		opt = 1;
-		assert(setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (void *)&opt, sizeof(opt)) != -1);
-
-		ESP_LOGI(__func__, "handshake done on %s, the new connection was opened with sockfd %d", req->uri, sockfd);
-		int i;
-		int free_idx = -1;
-
-		// See if the sockfd is already in use, possibly due to an unclean close
-		for (i = 0; i < cfg->handle_count; i++) {
-			if (cfg->handles[i].fd == sockfd) {
-				ESP_LOGE(__func__, "sockfd %d already existed in the handle list -- not adding duplicate", sockfd);
-				req->sess_ctx = &cfg->handles[i];
-				req->free_ctx = cgi_websocket_close;
-				return ESP_OK;
-			} else if (cfg->handles[i].fd == 0) {
-				free_idx = i;
-			}
-		}
-
-		// The socket handle is new, so add it to the list
-		if (free_idx != -1) {
-			int opt = 1;
-			setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, (void *)&opt, sizeof(opt));
-			cfg->handles[free_idx].fd = sockfd;
-			cfg->handles[free_idx].cookie = esp_random();
-			req->sess_ctx = &cfg->handles[free_idx];
-			req->free_ctx = cgi_websocket_close;
-			return ESP_OK;
-		}
-		ESP_LOGE(__func__, "no free sockets to handle this connection");
 		return ESP_OK;
 	}
 
