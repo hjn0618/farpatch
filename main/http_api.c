@@ -246,7 +246,7 @@ static void append_networking_to_output(httpd_req_t *req)
 		"\"ssid\":\"%s\","
 		"\"gdb\": %d,"
 		"\"rtt-tcp\": %d,"
-		"\"rtt-count\": %d,"
+		"\"rtt-channels\": %d,"
 		"\"rtt-udp\": %d,"
 		"\"uart-tcp\": %d,"
 		"\"uart-udp\": %d,"
